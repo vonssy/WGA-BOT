@@ -22,7 +22,7 @@
 
 Web3 Growth Agent BOT is an automated tool designed to claim daily check-in across multiple accounts. It provides seamless offers robust proxy support for enhanced security and reliability.
 
-**🔗 Get Started:** [Register on Web3 Growth Agent](hhttps://wga.xyz?invite=C5R9L1R5)
+**🔗 Get Started:** [Register on Web3 Growth Agent](https://wga.xyz?invite=C5R9L1R5)
 
 > **Use Codes:** `C5R9L1R5`  
 > **Important:** Sign-Up with new evm wallet and connect your social account.
