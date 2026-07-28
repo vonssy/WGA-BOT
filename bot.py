@@ -5,10 +5,10 @@ from aiohttp import (
     BasicAuth
 )
 from aiohttp_socks import ProxyConnector
+from eth_utils import to_hex
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from eth_utils import to_hex
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from colorama import *
 import asyncio, random, sys, re, os
 
@@ -148,6 +148,15 @@ class WGA:
             proxy_url = proxy_url.split("@", 1)[1]
 
         return proxy_url
+
+    def get_next_run_time(self, anchor_minute=1):
+            now = datetime.now(timezone.utc)
+            today_target = now.replace(hour=0, minute=anchor_minute, second=0, microsecond=0)
+    
+            if today_target > now:
+                return today_target
+            else:
+                return today_target + timedelta(days=1)
     
     def initialize_headers(self, idx: int):
         headers = {
@@ -621,9 +630,16 @@ class WGA:
 
                 self.log(f"{Fore.CYAN + Style.BRIGHT}={Style.RESET_ALL}"*60)
                 
-                delay = 24 * 60 * 60
-                while delay > 0:
-                    formatted_time = self.format_seconds(delay)
+                next_run = self.get_next_run_time(anchor_minute=1)
+                
+                while True:
+                    now = datetime.now(timezone.utc)
+                    remaining = (next_run - now).total_seconds()
+
+                    if remaining <= 0:
+                        break
+
+                    formatted_time = self.format_seconds(remaining)
 
                     print(
                         f"{Fore.CYAN+Style.BRIGHT}[ Wait for{Style.RESET_ALL}"
@@ -635,7 +651,6 @@ class WGA:
                         flush=True
                     )
                     await asyncio.sleep(1)
-                    delay -= 1
 
         except Exception as e:
             self.log(f"{Fore.RED+Style.BRIGHT}Error: {e}{Style.RESET_ALL}")
