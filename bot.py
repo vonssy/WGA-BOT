@@ -5,9 +5,9 @@ from aiohttp import (
     BasicAuth
 )
 from aiohttp_socks import ProxyConnector
-from eth_utils import to_hex
 from eth_account import Account
 from eth_account.messages import encode_defunct
+from eth_utils.conversions import to_hex
 from datetime import datetime, timedelta, timezone
 from colorama import *
 import asyncio, random, sys, re, os
@@ -541,12 +541,28 @@ class WGA:
             )
 
             if checkin_available:
-                checkin = await self.daily_checkin(idx, proxy_url)
-                if checkin:
-                    self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
-                        f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
-                    )
+
+                while True:
+                    checkin = await self.daily_checkin(idx, proxy_url)
+                    if checkin:
+                        is_rewarded = checkin.get("rewarded")
+                        box_issued = checkin.get("randomBoxIssued")
+
+                        if is_rewarded and box_issued:
+                            self.log(
+                                f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
+                                f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
+                            )
+                            break
+
+                        else:
+                            self.log(
+                                f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
+                                f"{Fore.YELLOW + Style.BRIGHT} Success, But No Box Was Issued. Retrying Check-In in 1 minute. {Style.RESET_ALL}"
+                            )
+                            await asyncio.sleep(60)
+                            continue
+
             else:
                 self.log(
                     f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
