@@ -40,7 +40,8 @@ Web3 Growth Agent BOT is an automated tool designed to claim daily check-in acro
 
 - **Python:** Version 3.9 or higher
 - **pip:** Latest version recommended
-- **Compatible libraries:** eth-account and eth-utils (see requirements.txt)
+- **2captcha API Key:** for turnstile solver
+- **Compatible libraries:** see requirements.txt
 
 ## 🛠 Installation
 
@@ -88,6 +89,13 @@ Create or edit `accounts.txt` in the project directory:
 your_private_key_1
 your_private_key_2
 your_private_key_3
+```
+### 2captcha API Key Setup
+
+Create or edit `2captcha_key.txt` in the project directory:
+
+```
+your_2captcha_api_key
 ```
 
 ### Proxy Configuration (Optional)

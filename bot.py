@@ -8,13 +8,21 @@ from aiohttp_socks import ProxyConnector
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_utils.conversions import to_hex
+from base64 import urlsafe_b64decode
 from datetime import datetime, timedelta, timezone
 from colorama import *
-import asyncio, random, sys, re, os
+import asyncio, random, time, json, sys, re, os
 
 class WGA:
     def __init__(self) -> None:
         self.BASE_API = "https://api.wga.xyz"
+
+        self.CAPTCHA = {
+            "page_url": "https://wga.xyz/",
+            "solver_api": "https://api.2captcha.com",
+            "site_key": "0x4AAAAAAEBpKTZ7NKmH0K-Q",
+            "captcha_key": None
+        }
 
         self.REF_CODE = "C5R9L1R5"
 
@@ -72,6 +80,17 @@ class WGA:
             return accounts
         except Exception as e:
             print(f"{Fore.RED + Style.BRIGHT}Failed To Load Accounts: {e}{Style.RESET_ALL}")
+            return None
+
+    def load_captcha_key(self):
+        filename = "captcha_key.txt"
+        try:
+            with open(filename, 'r') as file:
+                captcha_key = file.readline().strip()
+            self.CAPTCHA["captcha_key"] = captcha_key
+            return captcha_key
+        except FileNotFoundError:
+            self.log(f"{Fore.RED}File {filename} Not Found.{Style.RESET_ALL}")
             return None
 
     def load_proxies(self):
@@ -163,6 +182,7 @@ class WGA:
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Authorization": "Bearer",
             "Cache-Control": "no-cache",
             "Origin": "https://wga.xyz",
             "Pragma": "no-cache",
@@ -200,6 +220,18 @@ class WGA:
             return signature
         except Exception as e:
             raise Exception(f"Generate Req Payload Failed: {str(e)}")
+
+    def decode_token(self, idx: int):
+        try:
+            access_token = self.accounts[idx]["access_token"]
+            header, payload, signature = access_token.split(".")
+            decoded_payload = urlsafe_b64decode(payload + "==").decode("utf-8")
+            parsed_payload = json.loads(decoded_payload)
+            exp_time = parsed_payload["exp"]
+
+            return exp_time - 600
+        except Exception as e:
+            return None
 
     def mask_account(self, account):
         try:
@@ -260,8 +292,93 @@ class WGA:
             )
         
         return None
+
+    async def solve_turnstile(self, retries=5):
+        self.log(f"{Fore.CYAN+Style.BRIGHT}Captcha :{Style.RESET_ALL}")
+        
+        for attempt in range(retries):
+            try:
+                async with ClientSession(timeout=ClientTimeout(total=60)) as session:
+                    
+                    if self.CAPTCHA["captcha_key"] is None:
+                        self.log(
+                            f"{Fore.BLUE + Style.BRIGHT}   Status  : {Style.RESET_ALL}"
+                            f"{Fore.YELLOW + Style.BRIGHT}Captcha Key Is None{Style.RESET_ALL}"
+                        )
+                        return None
+
+                    url = f"{self.CAPTCHA['solver_api']}/createTask"
+                    data = json.dumps({
+                        "clientKey": self.CAPTCHA["captcha_key"],
+                        "task": {
+                            "type": "TurnstileTaskProxyless",
+                            "websiteURL": self.CAPTCHA["page_url"],
+                            "websiteKey": self.CAPTCHA["site_key"],
+                            "action": "reward_login"
+                        }
+                    })
+                    async with session.post(url=url, data=data) as response:
+                        await self.ensure_ok(response)
+                        result_text = await response.text()
+                        result_json = json.loads(result_text)
+
+                        if result_json.get("errorId") != 0:
+                            err_text = result_json.get("errorDescription", "Unknown Error")
+                            
+                            self.log(
+                                f"{Fore.BLUE + Style.BRIGHT}   Message : {Style.RESET_ALL}"
+                                f"{Fore.YELLOW + Style.BRIGHT}{err_text}{Style.RESET_ALL}"
+                            )
+                            await asyncio.sleep(5)
+                            continue
+
+                        task_id = result_json.get("taskId")
+                        self.log(
+                            f"{Fore.BLUE + Style.BRIGHT}   Task Id : {Style.RESET_ALL}"
+                            f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                        )
+
+                        for _ in range(30):
+                            res_url = f"{self.CAPTCHA['solver_api']}/getTaskResult"
+                            res_data = json.dumps({
+                                "clientKey": self.CAPTCHA["captcha_key"],
+                                "taskId": task_id
+                            })
+                            async with session.post(url=res_url, data=res_data) as res_response:
+                                await self.ensure_ok(res_response)
+                                res_result_text = await res_response.text()
+                                res_result_json = json.loads(res_result_text)
+
+                                if res_result_json.get("status") == "ready":
+                                    recaptcha_token = res_result_json["solution"]["token"]
+                                    self.log(
+                                        f"{Fore.BLUE + Style.BRIGHT}   Status  : {Style.RESET_ALL}"
+                                        f"{Fore.GREEN + Style.BRIGHT}Turnstile Solved Successfully{Style.RESET_ALL}"
+                                    )
+                                    return recaptcha_token
+                                elif res_result_json.get("status") == "processing":
+                                    self.log(
+                                        f"{Fore.BLUE + Style.BRIGHT}   Message : {Style.RESET_ALL}"
+                                        f"{Fore.YELLOW + Style.BRIGHT}Captcha Not Ready{Style.RESET_ALL}"
+                                    )
+                                    await asyncio.sleep(5)
+                                    continue
+                                else:
+                                    break
+
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                self.log(
+                    f"{Fore.BLUE + Style.BRIGHT}   Status  : {Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT}Trunstile Not Solved{Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT} - {Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT}{str(e)}{Style.RESET_ALL}"
+                )
+                return None
     
-    async def users_nonce(self, idx: int, proxy_url=None, retries=5):
+    async def users_nonce(self, idx: int, turnstile_token: str, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/users/nonce"
         
         for attempt in range(retries):
@@ -270,7 +387,12 @@ class WGA:
                 headers = self.initialize_headers(idx)
                 headers["Content-Type"] = "application/json"
                 payload = {
-                    "address": self.accounts[idx]["address"]
+                    "address": self.accounts[idx]["address"],
+                    "turnstileToken": turnstile_token,
+                    "referrerInviteCode": self.REF_CODE,
+                    "hp": "",
+                    "elapsedMs": random.randint(10000, 15000),
+                    "interacted": True
                 }
 
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
@@ -492,24 +614,29 @@ class WGA:
         is_valid = await self.process_check_connection(idx, proxy_url)
         if not is_valid: return False
 
-        if self.USE_PROXY:
-            proxy_url = self.get_next_proxy_for_account(idx)
+        if int(time.time()) > self.accounts[idx].get("exp_time", 0):
 
-        nonce = await self.users_nonce(idx, proxy_url)
-        if not nonce: return False
+            if self.USE_PROXY:
+                proxy_url = self.get_next_proxy_for_account(idx)
 
-        message = nonce.get("message")
+            turnstile_token = await self.solve_turnstile()
+            if not turnstile_token: return False
 
-        login = await self.users_login(idx, message, proxy_url)
-        if not login: return False
+            nonce = await self.users_nonce(idx, turnstile_token, proxy_url)
+            if not nonce: return False
 
-        access_token = login.get("accessToken")
-        self.accounts[idx]["access_token"] = access_token
+            message = nonce.get("message")
 
-        self.log(
-            f"{Fore.CYAN + Style.BRIGHT}Login   :{Style.RESET_ALL}"
-            f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
-        )
+            login = await self.users_login(idx, message, proxy_url)
+            if not login: return False
+
+            self.accounts[idx]["access_token"] = login.get("accessToken")
+            self.accounts[idx]["exp_time"] = self.decode_token(idx)
+
+            self.log(
+                f"{Fore.CYAN + Style.BRIGHT}Login   :{Style.RESET_ALL}"
+                f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
+            )
 
         return True
 
@@ -606,6 +733,7 @@ class WGA:
                 print(f"{Fore.RED+Style.BRIGHT}No Accounts Loaded.{Style.RESET_ALL}") 
                 return
 
+            self.load_captcha_key()
             self.print_question()
 
             while True:
