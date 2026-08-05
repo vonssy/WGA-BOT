@@ -5,6 +5,7 @@ from aiohttp import (
     BasicAuth
 )
 from aiohttp_socks import ProxyConnector
+from http.cookies import SimpleCookie
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from eth_utils.conversions import to_hex
@@ -176,6 +177,23 @@ class WGA:
                 return today_target
             else:
                 return today_target + timedelta(days=1)
+
+    def extract_cookies(self, idx: int, response: object):
+        existing = self.accounts[idx].get("cookies", {})
+        
+        jar = SimpleCookie()
+        
+        for k, v in existing.items():
+            jar[k] = v
+        
+        for h in response.headers.getall("Set-Cookie", []):
+            jar.load(h)
+        
+        self.accounts[idx]["cookies"] = {
+            k: m.value for k, m in jar.items()
+        }
+
+        return self.accounts[idx]["cookies"]
     
     def initialize_headers(self, idx: int):
         headers = {
@@ -229,7 +247,7 @@ class WGA:
             parsed_payload = json.loads(decoded_payload)
             exp_time = parsed_payload["exp"]
 
-            return exp_time - 600
+            return exp_time
         except Exception as e:
             return None
 
@@ -433,6 +451,7 @@ class WGA:
                         url=url, headers=headers, json=payload, proxy=proxy, proxy_auth=proxy_auth
                     ) as response:
                         await self.ensure_ok(response)
+                        self.extract_cookies(idx, response)
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
@@ -446,7 +465,36 @@ class WGA:
                 )
 
         return None
+    
+    async def auth_refresh(self, idx: int, proxy_url=None, retries=5):
+        url = f"{self.BASE_API}/auth/refresh"
+        
+        for attempt in range(retries):
+            connector, proxy, proxy_auth = self.build_proxy_config(proxy_url)
+            try:
+                headers = self.initialize_headers(idx)
+                headers["Content-Type"] = "application/json"
+                cookies = self.accounts[idx].get("cookies", {})
 
+                async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
+                    async with session.post(
+                        url=url, headers=headers, cookies=cookies, json={}, proxy=proxy, proxy_auth=proxy_auth
+                    ) as response:
+                        await self.ensure_ok(response)
+                        self.extract_cookies(idx, response)
+                        return await response.json()
+            except (Exception, ClientResponseError) as e:
+                if attempt < retries - 1:
+                    await asyncio.sleep(5)
+                    continue
+                self.log(
+                    f"{Fore.CYAN+Style.BRIGHT}Refresh :{Style.RESET_ALL}"
+                    f"{Fore.RED+Style.BRIGHT} Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.YELLOW+Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+
+        return None
     
     async def social_link_status(self, idx: int, proxy_url=None, retries=5):
         url = f"{self.BASE_API}/users/social-link-status"
@@ -619,24 +667,37 @@ class WGA:
             if self.USE_PROXY:
                 proxy_url = self.get_next_proxy_for_account(idx)
 
-            turnstile_token = await self.solve_turnstile()
-            if not turnstile_token: return False
+            if self.accounts[idx].get("cookies", {}):
+                refresh = await self.auth_refresh(idx, proxy_url)
+                if not refresh: return False
 
-            nonce = await self.users_nonce(idx, turnstile_token, proxy_url)
-            if not nonce: return False
+                self.accounts[idx]["access_token"] = refresh.get("accessToken")
+                self.accounts[idx]["exp_time"] = self.decode_token(idx)
 
-            message = nonce.get("message")
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}Refresh :{Style.RESET_ALL}"
+                    f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
+                )
 
-            login = await self.users_login(idx, message, proxy_url)
-            if not login: return False
+            else:
+                turnstile_token = await self.solve_turnstile()
+                if not turnstile_token: return False
 
-            self.accounts[idx]["access_token"] = login.get("accessToken")
-            self.accounts[idx]["exp_time"] = self.decode_token(idx)
+                nonce = await self.users_nonce(idx, turnstile_token, proxy_url)
+                if not nonce: return False
 
-            self.log(
-                f"{Fore.CYAN + Style.BRIGHT}Login   :{Style.RESET_ALL}"
-                f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
-            )
+                message = nonce.get("message")
+
+                login = await self.users_login(idx, message, proxy_url)
+                if not login: return False
+
+                self.accounts[idx]["access_token"] = login.get("accessToken")
+                self.accounts[idx]["exp_time"] = self.decode_token(idx)
+
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}Login   :{Style.RESET_ALL}"
+                    f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
+                )
 
         return True
 
