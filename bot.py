@@ -2,6 +2,7 @@ from aiohttp import (
     ClientResponseError,
     ClientSession,
     ClientTimeout,
+    TCPConnector,
     BasicAuth
 )
 from aiohttp_socks import ProxyConnector
@@ -141,7 +142,7 @@ class WGA:
     
     def build_proxy_config(self, proxy=None):
         if not proxy:
-            return None, None, None
+            return TCPConnector(ssl=False), None, None
 
         if proxy.startswith("socks"):
             connector = ProxyConnector.from_url(proxy)
@@ -153,9 +154,9 @@ class WGA:
                 username, password, host_port = match.groups()
                 clean_url = f"http://{host_port}"
                 auth = BasicAuth(username, password)
-                return None, clean_url, auth
+                return TCPConnector(ssl=False), clean_url, auth
             else:
-                return None, proxy, None
+                return TCPConnector(ssl=False), proxy, None
 
         raise Exception("Unsupported Proxy Type.")
     
