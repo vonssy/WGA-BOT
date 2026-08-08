@@ -622,6 +622,9 @@ class WGA:
                     async with session.post(
                         url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth
                     ) as response:
+                        if response.status == 401:
+                            await self.process_auth_refresh(idx, proxy_url)
+                            continue
                         await self.ensure_ok(response)
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -659,6 +662,20 @@ class WGA:
 
             return False
     
+    async def process_auth_refresh(self, idx: int, proxy_url=None):
+        refresh = await self.auth_refresh(idx, proxy_url)
+        if not refresh: return False
+
+        self.accounts[idx]["access_token"] = refresh.get("accessToken")
+        self.accounts[idx]["exp_time"] = self.decode_token(idx)
+
+        self.log(
+            f"{Fore.CYAN + Style.BRIGHT}Refresh :{Style.RESET_ALL}"
+            f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
+        )
+
+        return True
+
     async def process_user_login(self, idx: int, proxy_url=None):
         is_valid = await self.process_check_connection(idx, proxy_url)
         if not is_valid: return False
@@ -669,17 +686,7 @@ class WGA:
                 proxy_url = self.get_next_proxy_for_account(idx)
 
             if self.accounts[idx].get("cookies", {}):
-                refresh = await self.auth_refresh(idx, proxy_url)
-                if not refresh: return False
-
-                self.accounts[idx]["access_token"] = refresh.get("accessToken")
-                self.accounts[idx]["exp_time"] = self.decode_token(idx)
-
-                self.log(
-                    f"{Fore.CYAN + Style.BRIGHT}Refresh :{Style.RESET_ALL}"
-                    f"{Fore.GREEN + Style.BRIGHT} Success {Style.RESET_ALL}"
-                )
-
+                if not await self.process_auth_refresh(idx, proxy_url): return False
             else:
                 turnstile_token = await self.solve_turnstile()
                 if not turnstile_token: return False
