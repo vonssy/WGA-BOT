@@ -566,6 +566,9 @@ class WGA:
                     async with session.post(
                         url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth
                     ) as response:
+                        if response.status == 401:
+                            await self.process_auth_refresh(idx, proxy_url)
+                            continue
                         await self.ensure_ok(response)
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -622,9 +625,6 @@ class WGA:
                     async with session.post(
                         url=url, headers=headers, proxy=proxy, proxy_auth=proxy_auth
                     ) as response:
-                        if response.status == 401:
-                            await self.process_auth_refresh(idx, proxy_url)
-                            continue
                         await self.ensure_ok(response)
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -754,9 +754,9 @@ class WGA:
                         else:
                             self.log(
                                 f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
-                                f"{Fore.YELLOW + Style.BRIGHT} Success, But No Box Was Issued. Retrying Check-In in 1 minute. {Style.RESET_ALL}"
+                                f"{Fore.YELLOW + Style.BRIGHT} Success, But No Box Was Issued. Retrying Check-In in 10 minute. {Style.RESET_ALL}"
                             )
-                            await asyncio.sleep(60)
+                            await asyncio.sleep(600)
                             continue
 
             else:
