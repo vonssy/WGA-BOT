@@ -754,9 +754,9 @@ class WGA:
                         else:
                             self.log(
                                 f"{Fore.CYAN + Style.BRIGHT}Check-In:{Style.RESET_ALL}"
-                                f"{Fore.YELLOW + Style.BRIGHT} Success, But No Box Was Issued. Retrying Check-In in 10 minute. {Style.RESET_ALL}"
+                                f"{Fore.YELLOW + Style.BRIGHT} Success, But No Box Was Issued. Retrying Check-In in 1 hours. {Style.RESET_ALL}"
                             )
-                            await asyncio.sleep(600)
+                            await asyncio.sleep(3600)
                             continue
 
             else:
